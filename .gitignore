@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.ko
+*.o
+*.mod
+*.mod.c
+.tmp_versions/
+modules.order
+Module.symvers
+*.cmd
+.venv/
+*.egg-info/
+dist/
+build/
+output_*/
+*.json.bak

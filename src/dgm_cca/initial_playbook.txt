@@ -1,0 +1,118 @@
+## STRATEGIES & INSIGHTS
+
+### Claim Discipline (for prompt scaffolding)
+- Treat this file as a hypothesis playbook, not a theorem set.
+- Only mark "HIGH CONFIDENCE" when the mechanism is directly visible in referenced code/paper.
+- Avoid universal wording like "always", "never", "current SOTA", "first" unless explicitly sourced.
+- Distinguish measurement settings (e.g., configured loss in scripts) from physical-world causes.
+- Optimize for robust empirical frontier under this harness, not for proving global optimality.
+
+### Source Tag Schema (machine-auditable)
+- Required format under each `### [B#]` or `### [M#]` heading:
+  - `SOURCE_TAGS: SRC:<type>(<id>); SRC:<type>(<id>); ...`
+- Allowed `<type>` values:
+  - `paper`, `code`, `sim`, `benchmark`, `hypothesis`
+- Use `SRC:hypothesis(...)` when a claim is an engineering conjecture.
+
+### [B1] LEO links are transient-heavy in measured traces (HIGH CONFIDENCE — LeoCC SIGCOMM'25, SatPipe)
+SOURCE_TAGS: SRC:paper(leocc_sigcomm25); SRC:paper(satpipe_infocom25)
+In published Starlink/LEO evaluations, frequent reconfiguration events can induce abrupt RTT/capacity changes. Algorithms that treat all disturbances as persistent congestion can recover slowly in these regimes.
+
+### [B2] Dual estimator switching is a strong reference pattern (HIGH CONFIDENCE — LeoCC code)
+SOURCE_TAGS: SRC:code(leocc_ref/leocc/live_network/leocc.c); SRC:code(leocc_ref/leocc/simulation/leocc.c)
+LeoCC uses aggressive max-filter behavior in stable periods and Kalman-smoothed behavior under detected transition signals. In vendored code this appears with `var_R=var_Q=4`, 8-phase pacing, and mode-sensitive switching.
+
+### [B3] Handoff-aware freezing or soft response is a plausible design lever (MEDIUM CONFIDENCE — SaTCP + LeoCC-style logic)
+SOURCE_TAGS: SRC:paper(satcp_infocom23); SRC:hypothesis(handoff_soft_response_for_leo)
+Under abrupt topology/capacity transitions, hard multiplicative decrease can be overly pessimistic. Prefer conditional handling (freeze/soft-cut/re-rate) gated by explicit transition signals.
+
+### [B4] Pacing probe/drain cycles remain a solid baseline mechanism (HIGH CONFIDENCE — BBR family, LeoCC code)
+SOURCE_TAGS: SRC:code(leocc_ref/leocc/live_network/leocc.c); SRC:paper(bbr_queue_2016)
+An 8-phase `[1.25, 0.75, 1, 1, 1, 1, 1, 1]` style cycle is a practical reference for balancing probing and queue drain.
+
+### [B5] Contracts theory constrains steady-state tradeoffs (HIGH CONFIDENCE — Agarwal/Arun/Seshan, 2025)
+SOURCE_TAGS: SRC:paper(contracts_cca_2025)
+Contract shape governs robustness/fairness/congestion/generality tradeoffs in the analyzed model class. Use this as a prior for steady-state limits, while still optimizing transient behavior empirically in LEO traces.
+
+### [B6] Loss-type discrimination is likely important (MEDIUM CONFIDENCE)
+SOURCE_TAGS: SRC:hypothesis(loss_type_discrimination); SRC:code(leocc_ref/leocc/live_network/leocc.c); SRC:code(frcc_ref/frcc_kernel/tcp_frcc.c)
+Treat congestion, random link loss, and reconfiguration-related loss as different hypotheses. Avoid single-response policies unless evidence clearly supports one cause.
+
+### [B7] FRCC is a formal fairness reference, not a guaranteed LEO winner (MEDIUM CONFIDENCE — NSDI'26 abstract + code)
+SOURCE_TAGS: SRC:paper(frcc_nsdi26); SRC:code(frcc_ref/frcc_kernel/tcp_frcc.c)
+FRCC contributes formal fairness/starvation reasoning and slot-based probing. Use it as a mechanism source and robustness reference, then validate performance empirically in this LEO harness.
+
+### [B8] Rate-based control often performs well on LEO-like traces (MEDIUM CONFIDENCE)
+SOURCE_TAGS: SRC:sim(local_leoreplayer_runs); SRC:benchmark(leocc_eval_setup)
+In many evaluations, rate-based pacing helps follow time-varying capacity. Treat this as an empirical tendency, not a universal rule.
+
+## CODE SNIPPETS & TEMPLATES
+
+### LeoCC Kalman filter update (from leocc.c, fixed-point)
+```c
+// Kalman BW update (R=Q=4, LEOCC_SCALE=8, LEOCC_UNIT=256)
+leocc->kalman_gain_bw = leocc->p_post_bw * LEOCC_UNIT / (leocc->p_post_bw + var_R);
+leocc->bw_hat_post = ((LEOCC_UNIT - leocc->kalman_gain_bw) * leocc->bw_hat_post
+    + leocc->kalman_gain_bw * measurement) / LEOCC_UNIT;
+leocc->p_post_bw = (LEOCC_UNIT - leocc->kalman_gain_bw) * leocc->p_post_bw / LEOCC_UNIT;
+```
+
+### LeoCC dual estimator switch (from leocc.c)
+```c
+// Switch to conservative Kalman BW when RTT estimate exceeds threshold
+if (rtt_hat_post >= delta_rtt + min_rtt_us + min_rtt_fluctuation
+    && !local_reconfiguration_trigger
+    && mode == LEOCC_DYNAMIC_CRUISE) {
+    bw = bw_hat_post;          // use Kalman (conservative)
+    pacing_gain = UNIT * 105 / 100;  // reduced from 125/100
+} else {
+    bw = minmax_get(&bw);      // use max-filter (aggressive)
+    pacing_gain = UNIT * 125 / 100;
+}
+```
+
+### BBR-style pacing gain cycle
+```c
+static int pacing_gain[] = {
+    UNIT * 5 / 4,   // probe: 1.25x
+    UNIT * 3 / 4,   // drain: 0.75x
+    UNIT, UNIT, UNIT, UNIT, UNIT, UNIT  // cruise: 1.0x
+};
+// Advance cycle each min_rtt; cwnd = 2 * BDP * cwnd_gain
+```
+
+### FRCC slot-based probing pattern
+```c
+// Per-slot: probe at gamma*base_rate, then cruise at base_rate
+// Slot duration: max(rtprop, rtprop_estimate)
+// After probe: wait probe_wait_rtts RTTs before next probe
+// cwnd_clamp: [lo_unit * cwnd, hi_unit * cwnd] per update
+```
+
+## COMMON MISTAKES TO AVOID
+
+### [M1] Do NOT treat all loss as congestion (can significantly reduce performance on some LEO traces)
+SOURCE_TAGS: SRC:hypothesis(loss_misclassification_hurts); SRC:paper(leocc_sigcomm25)
+### [M2] Do NOT use fixed delay thresholds (Copa's 1/delta*d_q fails when d_q includes satellite dynamics)
+SOURCE_TAGS: SRC:paper(copa_anrw18); SRC:hypothesis(fixed_delay_thresholds_in_leo)
+### [M3] Do NOT use kzalloc in .init — all state must fit in ICSK_CA_PRIV_SIZE (112 bytes)
+SOURCE_TAGS: SRC:code(linux_tcp_congestion_ops_constraints); SRC:code(leocc_ref/leocc/README.md)
+### [M4] struct size limit: use u16 where u32 not needed, bitfields for flags
+SOURCE_TAGS: SRC:code(linux_tcp_ca_priv_size_practice)
+### [M5] Fixed-point arithmetic: P_SCALE=8 means P_UNIT=256, multiply before divide to preserve precision
+SOURCE_TAGS: SRC:code(leocc_ref/leocc/live_network/leocc.c)
+### [M6] Do NOT assume constant propagation delay — LEO min_rtt varies 20-60ms across handoffs
+SOURCE_TAGS: SRC:paper(leocc_sigcomm25); SRC:paper(satpipe_infocom25)
+### [M7] Avoid positive feedback loops in BW estimation — use ack timestamps, NOT cwnd/rtt
+SOURCE_TAGS: SRC:hypothesis(bw_estimation_stability)
+
+## OTHERS
+
+### Goal: Discover a NEW CCA that pushes the Pareto frontier beyond existing SOTA
+The LLM likely knows CUBIC/BBR/Copa/Vegas patterns. LeoCC and FRCC code are provided as references. Prefer recombination and new mechanisms over rote rediscovery. Target: improve the empirical 4D frontier under this harness while preserving robustness across traces.
+
+### Evaluation environment
+- LeoReplayer (Mahimahi fork) + iperf3 on real Starlink traces
+- 5 traces × 120s, single-flow
+- 4D objective: util, delay_quality, loss_efficiency, robustness
+- Bottleneck-driven mutation: worst dimension gets targeted improvement

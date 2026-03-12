@@ -1,0 +1,46 @@
+{
+    "run_id": "initial",
+    "parent_commit": null,
+    "entry": "initial_seed",
+    "problem_statement": "LeoCC seed (faithful port of leocc/simulation/leocc.c, SIGCOMM 2025)",
+    "model_patch_exists": false,
+    "model_patch_notempty": false,
+    "overall_performance": {
+        "accuracy_score": 0.794,
+        "total_resolved_instances": 5,
+        "total_submitted_instances": 5,
+        "total_resolved_ids": ["Anonymous_A_downlink/10", "Anonymous_A_downlink/16", "Anonymous_A_downlink/8", "Anonymous_B_downlink/11", "Anonymous_B_downlink/18"],
+        "total_unresolved_ids": [],
+        "total_emptypatch_ids": [],
+        "objective_vector": {
+            "util": 0.782,
+            "delay_quality": 0.831,
+            "loss_efficiency": 0.951,
+            "robustness": 0.553
+        },
+        "bottleneck_dim": "robustness",
+        "bottleneck_gap": 0.089,
+        "per_trace": {}
+    },
+    "note": "LeoCC seed baseline (30s eval, 5 traces, paper params: queue=500/50000, loss=0.005/0.0001, per-trace offsets). Beats BBR by +3.8%. Bottleneck is robustness (B_downlink traces with high RTT, 55% util).",
+    "baselines": {
+        "bbr_30s": {
+            "accuracy_score": 0.769,
+            "objective_vector": {
+                "util": 0.753,
+                "delay_quality": 0.717,
+                "loss_efficiency": 0.936,
+                "robustness": 0.563
+            }
+        },
+        "cubic_30s": {
+            "accuracy_score": 0.540,
+            "objective_vector": {
+                "util": 0.020,
+                "delay_quality": 0.904,
+                "loss_efficiency": 0.995,
+                "robustness": 0.007
+            }
+        }
+    }
+}
