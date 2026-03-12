@@ -197,6 +197,13 @@ static void leocc_set_pacing_rate(struct sock *sk, u32 bw, int gain)
 		sk->sk_pacing_rate = rate;
 }
 
+static const int leocc_min_tso_rate = 1200000;
+
+static u32 leocc_min_tso_segs(struct sock *sk)
+{
+	return sk->sk_pacing_rate < (leocc_min_tso_rate >> 3) ? 1 : 2;
+}
+
 static u32 leocc_tso_segs_goal(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -205,7 +212,7 @@ static u32 leocc_tso_segs_goal(struct sock *sk)
 	bytes = min_t(unsigned long,
 		      sk->sk_pacing_rate >> READ_ONCE(sk->sk_pacing_shift),
 		      GSO_LEGACY_MAX_SIZE - 1 - MAX_TCP_HEADER);
-	segs = max_t(u32, bytes / tp->mss_cache, 1);
+	segs = max_t(u32, bytes / tp->mss_cache, leocc_min_tso_segs(sk));
 
 	return min(segs, 0x7FU);
 }
